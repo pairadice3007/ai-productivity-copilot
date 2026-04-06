@@ -25,11 +25,10 @@ class AppState:
         self.category: str = "unknown"
         self.nudge_text: str = "Starting up…"
         self.is_paused: bool = False
-        self.snooze_until: datetime | None = None
+        self.is_working_away: bool = False   # replaces snooze — no timeout, user toggles
         self.conn = None  # set by main after DB connect
         self._lock = threading.Lock()
 
-    # Thread-safe getters/setters for fields modified by both threads
     def set_nudge(self, task: str, category: str, nudge: str):
         with self._lock:
             self.current_task = task
@@ -39,19 +38,6 @@ class AppState:
     def get_nudge(self) -> tuple[str, str, str]:
         with self._lock:
             return self.current_task, self.category, self.nudge_text
-
-    def is_snoozed(self) -> bool:
-        with self._lock:
-            return self.snooze_until is not None and datetime.now() < self.snooze_until
-
-    def snooze(self, minutes: int = 10):
-        with self._lock:
-            from datetime import timedelta
-            self.snooze_until = datetime.now() + timedelta(minutes=minutes)
-
-    def clear_snooze(self):
-        with self._lock:
-            self.snooze_until = None
 
 
 class SchedulerThread(threading.Thread):
@@ -87,9 +73,10 @@ class SchedulerThread(threading.Thread):
             self._skip_cycles -= 1
             return
 
-        # 3. Snoozed
-        if state.is_snoozed():
-            self._ui_callback(state.current_task, state.category, "Snoozed — tracking time to current task.", "snoozed")
+        # 3. Working away (on a call, other computer, etc.) — track time, skip screenshots
+        if state.is_working_away:
+            self._ui_callback(state.current_task, state.category,
+                              "Working away — time tracking continues. Click 'I'm Back' when done.", "away")
             return
 
         # 4. Idle check

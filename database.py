@@ -116,6 +116,17 @@ def get_tasks(conn: sqlite3.Connection, session_id: int) -> list[str]:
     return [r["name"] for r in rows]
 
 
+def add_task(conn: sqlite3.Connection, session_id: int, name: str) -> None:
+    max_pos = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE session_id=?", (session_id,)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO tasks (session_id, name, position) VALUES (?, ?, ?)",
+        (session_id, name.strip(), max_pos + 1),
+    )
+    conn.commit()
+
+
 def get_completed_tasks(conn: sqlite3.Connection, session_id: int) -> list[str]:
     rows = conn.execute(
         "SELECT name FROM tasks WHERE session_id=? AND completed_at IS NOT NULL ORDER BY completed_at",

@@ -239,35 +239,42 @@ class NudgeWindow:
                                      font=FONT_MONO, anchor="e", padx=8)
         self._clock_label.pack(side="right")
 
-        # ── Button row ────────────────────────────────────────────────────────
+        # ── Button row 1: primary actions ─────────────────────────────────────
         btn_row = tk.Frame(content, bg=BG_COLOR)
-        btn_row.pack(fill="x", padx=6, pady=(0, 6))
+        btn_row.pack(fill="x", padx=6, pady=(0, 2))
 
         self._pause_btn = _btn(btn_row, "⏸ Pause", self._toggle_pause,
                                fg=DIM_COLOR, padx=6)
         self._pause_btn.pack(side="left", padx=(0, 3))
 
-        _btn(btn_row, "∑ Summary", self._show_summary,
-             fg=DIM_COLOR, padx=6).pack(side="left", padx=3)
+        self._away_btn = _btn(btn_row, "🏃 Away", self._toggle_away,
+                              fg=DIM_COLOR, padx=6)
+        self._away_btn.pack(side="left", padx=3)
 
-        _btn(btn_row, "⏱ Snooze", self._snooze,
+        _btn(btn_row, "∑ Summary", self._show_summary,
              fg=DIM_COLOR, padx=6).pack(side="left", padx=3)
 
         self._chat_btn = _btn(btn_row, "💬", self._toggle_chat,
                                fg=DIM_COLOR, padx=6)
         self._chat_btn.pack(side="left", padx=3)
 
-        self._done_btn = _btn(btn_row, "✓ Done", self._mark_done,
-                              fg=COLORS["productive"], padx=6)
-        self._done_btn.pack(side="right", padx=(3, 0))
+        # ── Button row 2: task actions ─────────────────────────────────────────
+        btn_row2 = tk.Frame(content, bg=BG_COLOR)
+        btn_row2.pack(fill="x", padx=6, pady=(0, 6))
 
-        self._correct_btn = _btn(btn_row, "✎", self._show_correction,
+        _btn(btn_row2, "＋ Task", self._add_task,
+             fg=DIM_COLOR, padx=6).pack(side="left", padx=(0, 3))
+
+        self._correct_btn = _btn(btn_row2, "✎ Switch", self._show_correction,
                                   fg=DIM_COLOR, padx=6)
-        self._correct_btn.pack(side="right")
+        self._correct_btn.pack(side="left", padx=3)
+
+        self._done_btn = _btn(btn_row2, "✓ Done", self._mark_done,
+                              fg=COLORS["productive"], padx=6)
+        self._done_btn.pack(side="right")
 
         # ── Chat panel (hidden by default) ────────────────────────────────────
         self._chat_frame = tk.Frame(content, bg=SURFACE_COLOR)
-        # Not packed yet — toggled by _toggle_chat
 
         chat_input_row = tk.Frame(self._chat_frame, bg=SURFACE_COLOR)
         chat_input_row.pack(fill="x", padx=6, pady=4)
@@ -286,12 +293,8 @@ class NudgeWindow:
 
         self._chat_visible = False
 
-        # ── Resize grip (bottom-right corner) ─────────────────────────────────
-        grip = tk.Label(inner, text="⠿", bg=BG_COLOR, fg=SURFACE_2,
-                        cursor="size_nw_se", font=("Segoe UI", 8))
-        grip.place(relx=1.0, rely=1.0, anchor="se")
-        grip.bind("<Button-1>", self._resize_start)
-        grip.bind("<B1-Motion>", self._resize_move)
+        # ── All-edge resize handles ────────────────────────────────────────────
+        self._add_resize_handles(root)
 
         # ── Tray icon ──────────────────────────────────────────────────────────
         self._tray_icon = None
@@ -324,12 +327,12 @@ class NudgeWindow:
 
         # Indicator state
         ind_states = {
-            "monitoring": (cat_color,  "●"),
-            "paused":     (DIM_COLOR,  "⏸"),
-            "idle":       (DIM_COLOR,  "○"),
-            "snoozed":    (COLORS["break"], "⏱"),
-            "sensitive":  (COLORS["drift"], "▪"),
-            "error":      (COLORS["drift"], "✕"),
+            "monitoring": (cat_color,           "●"),
+            "paused":     (DIM_COLOR,            "⏸"),
+            "idle":       (DIM_COLOR,            "○"),
+            "away":       (COLORS["break"],      "🏃"),
+            "sensitive":  (COLORS["drift"],      "▪"),
+            "error":      (COLORS["drift"],      "✕"),
         }
         fg, sym = ind_states.get(indicator, (cat_color, "●"))
         self._indicator.config(text=sym, fg=fg)
@@ -407,22 +410,55 @@ class NudgeWindow:
             self._tray_icon.stop()
         self.root.after(0, self._on_quit)
 
-    # ── Resize ────────────────────────────────────────────────────────────────
+    # ── All-edge resize ───────────────────────────────────────────────────────
 
-    def _resize_start(self, event):
-        self._resize_start_x = event.x_root
-        self._resize_start_y = event.y_root
-        self._resize_start_w = self.root.winfo_width()
-        self._resize_start_h = self.root.winfo_height()
+    def _add_resize_handles(self, root):
+        """Add invisible 5px drag handles on all 8 edges/corners."""
+        B = 5  # border thickness
+        handles = {
+            "n":  dict(cursor="size_ns",     relx=0,   rely=0,   relwidth=1,   height=B,  anchor="nw"),
+            "s":  dict(cursor="size_ns",     relx=0,   rely=1,   relwidth=1,   height=B,  anchor="sw"),
+            "e":  dict(cursor="size_we",     relx=1,   rely=0,   width=B,      relheight=1, anchor="ne"),
+            "w":  dict(cursor="size_we",     relx=0,   rely=0,   width=B,      relheight=1, anchor="nw"),
+            "ne": dict(cursor="size_ne_sw",  relx=1,   rely=0,   width=B*2,    height=B*2,  anchor="ne"),
+            "nw": dict(cursor="size_nw_se",  relx=0,   rely=0,   width=B*2,    height=B*2,  anchor="nw"),
+            "se": dict(cursor="size_nw_se",  relx=1,   rely=1,   width=B*2,    height=B*2,  anchor="se"),
+            "sw": dict(cursor="size_ne_sw",  relx=0,   rely=1,   width=B*2,    height=B*2,  anchor="sw"),
+        }
+        for direction, opts in handles.items():
+            h = tk.Frame(root, bg=BG_COLOR, cursor=opts["cursor"])
+            place_kw = {k: v for k, v in opts.items() if k != "cursor"}
+            h.place(**place_kw)
+            h.bind("<Button-1>",  lambda e, d=direction: self._resize_start(e, d))
+            h.bind("<B1-Motion>", lambda e, d=direction: self._resize_drag(e, d))
 
-    def _resize_move(self, event):
-        dw = event.x_root - self._resize_start_x
-        dh = event.y_root - self._resize_start_y
-        new_w = max(280, self._resize_start_w + dw)
-        new_h = max(160, self._resize_start_h + dh)
-        self.root.geometry(f"{new_w}x{new_h}")
-        # Keep nudge text wrapping in sync
-        self._nudge_label.config(wraplength=new_w - 36)
+    def _resize_start(self, event, direction):
+        self._rsz_dir  = direction
+        self._rsz_x0   = event.x_root
+        self._rsz_y0   = event.y_root
+        self._rsz_w0   = self.root.winfo_width()
+        self._rsz_h0   = self.root.winfo_height()
+        self._rsz_wx0  = self.root.winfo_x()
+        self._rsz_wy0  = self.root.winfo_y()
+
+    def _resize_drag(self, event, direction):
+        dx = event.x_root - self._rsz_x0
+        dy = event.y_root - self._rsz_y0
+        w, h = self._rsz_w0, self._rsz_h0
+        x, y = self._rsz_wx0, self._rsz_wy0
+        MIN_W, MIN_H = 280, 180
+
+        if "e" in direction:  w = max(MIN_W, self._rsz_w0 + dx)
+        if "s" in direction:  h = max(MIN_H, self._rsz_h0 + dy)
+        if "w" in direction:
+            w = max(MIN_W, self._rsz_w0 - dx)
+            x = self._rsz_wx0 + self._rsz_w0 - w
+        if "n" in direction:
+            h = max(MIN_H, self._rsz_h0 - dy)
+            y = self._rsz_wy0 + self._rsz_h0 - h
+
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        self._nudge_label.config(wraplength=w - 36)
 
     def _toggle_pause(self):
         self.state.is_paused = not self.state.is_paused
@@ -433,10 +469,58 @@ class NudgeWindow:
             self._nudge_label.config(text="Monitoring paused.", fg=DIM_COLOR)
             self._accent_strip.config(bg=DIM_COLOR)
 
-    def _snooze(self):
-        self.state.snooze(minutes=10)
-        self._nudge_label.config(text="Snoozed 10m — time tracking continues.", fg=COLORS["break"])
-        self._accent_strip.config(bg=COLORS["break"])
+    def _toggle_away(self):
+        self.state.is_working_away = not self.state.is_working_away
+        if self.state.is_working_away:
+            self._away_btn.config(text="✓ I'm Back", fg=COLORS["productive"],
+                                  bg=SURFACE_2, activebackground=SURFACE_COLOR)
+            self._nudge_label.config(
+                text="Working away — time tracking continues.\nClick 'I'm Back' when you return.",
+                fg=COLORS["break"])
+            self._accent_strip.config(bg=COLORS["break"])
+        else:
+            self._away_btn.config(text="🏃 Away", fg=DIM_COLOR,
+                                  bg=SURFACE_COLOR, activebackground=SURFACE_2)
+            self._nudge_label.config(text="Welcome back! Resuming monitoring.", fg=FG_COLOR)
+
+    def _add_task(self):
+        popup = tk.Toplevel(self.root)
+        popup.overrideredirect(True)
+        popup.wm_attributes("-topmost", True)
+        popup.configure(bg=BORDER_COLOR)
+
+        pw, ph = 260, 68
+        px = self.root.winfo_x()
+        py = self.root.winfo_y() - ph - 4
+        popup.geometry(f"{pw}x{ph}+{px}+{py}")
+
+        inner = tk.Frame(popup, bg=SURFACE_COLOR)
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+
+        tk.Label(inner, text="NEW TASK", bg=SURFACE_COLOR, fg=DIM_COLOR,
+                 font=("Segoe UI", 7, "bold"), anchor="w", padx=10).pack(fill="x", pady=(6, 2))
+
+        row = tk.Frame(inner, bg=SURFACE_COLOR)
+        row.pack(fill="x", padx=6, pady=(0, 6))
+
+        entry = tk.Entry(row, bg=SURFACE_2, fg=FG_COLOR,
+                         insertbackground=ACCENT_COLOR, relief="flat", font=FONT_BODY)
+        entry.pack(side="left", fill="x", expand=True, ipady=4, padx=(0, 4))
+        entry.focus_set()
+
+        def save(e=None):
+            name = entry.get().strip()
+            if name:
+                db.add_task(self.conn, self.session_id, name)
+                self.state.tasks = db.get_tasks(self.conn, self.session_id)
+            popup.destroy()
+
+        entry.bind("<Return>", save)
+        entry.bind("<Escape>", lambda e: popup.destroy())
+        _btn(row, "＋", save, fg=ACCENT_COLOR, bg=SURFACE_2, padx=8).pack(side="right")
+        self.root.bind("<Button-1>",
+                       lambda e: popup.destroy() if not (px <= e.x_root <= px+pw and py <= e.y_root <= py+ph) else None,
+                       add="+")
 
     def _mark_done(self):
         task = self.state.current_task
