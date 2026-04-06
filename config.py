@@ -11,8 +11,8 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 DB_PATH = Path.home() / ".copilot_sessions.db"
 LOCK_FILE = Path.home() / ".copilot.lock"
 
-NUDGE_WIDTH = 320
-NUDGE_HEIGHT = 190
+NUDGE_WIDTH = 340
+NUDGE_HEIGHT = 210
 
 # ── Design system: AI-Native Minimalism + OLED Dark (Developer Tool / Timer palette) ──
 # Style source: ui-ux-pro-max — Row 18 (AI/Chatbot) + Row 81 (Developer Tool)
@@ -32,11 +32,11 @@ DIM_COLOR    = "#94A3B8"   # muted text (slate-400)
 ACCENT_COLOR = "#6366F1"   # AI purple accent
 
 # Typography: Segoe UI (Inter equivalent on Windows) + Consolas (JetBrains Mono equivalent)
-FONT_BODY  = ("Segoe UI", 10)
-FONT_SMALL = ("Segoe UI", 8)
-FONT_LABEL = ("Segoe UI", 9, "bold")
-FONT_MONO  = ("Consolas", 9)       # clock, task name
-FONT_NUDGE = ("Segoe UI", 10)
+FONT_BODY  = ("Segoe UI", 11)
+FONT_SMALL = ("Segoe UI", 9)
+FONT_LABEL = ("Segoe UI", 10, "bold")
+FONT_MONO  = ("Consolas", 10)      # clock, task name
+FONT_NUDGE = ("Segoe UI", 11)
 
 SENSITIVE_APPS = [
     "1password", "keepass", "keepassxc", "bitwarden",

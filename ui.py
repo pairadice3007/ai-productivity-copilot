@@ -7,8 +7,12 @@ Typography: Segoe UI (Inter equivalent) + Consolas (monospace)
 """
 import tkinter as tk
 from datetime import datetime
+import threading
+import pystray
+from PIL import Image, ImageDraw
 import database as db
 import time_tracker
+import claude_client
 from config import (
     NUDGE_WIDTH, NUDGE_HEIGHT,
     COLORS, BG_COLOR, SURFACE_COLOR, SURFACE_2, BORDER_COLOR,
@@ -249,9 +253,49 @@ class NudgeWindow:
         _btn(btn_row, "⏱ Snooze", self._snooze,
              fg=DIM_COLOR, padx=6).pack(side="left", padx=3)
 
+        self._chat_btn = _btn(btn_row, "💬", self._toggle_chat,
+                               fg=DIM_COLOR, padx=6)
+        self._chat_btn.pack(side="left", padx=3)
+
+        self._done_btn = _btn(btn_row, "✓ Done", self._mark_done,
+                              fg=COLORS["productive"], padx=6)
+        self._done_btn.pack(side="right", padx=(3, 0))
+
         self._correct_btn = _btn(btn_row, "✎", self._show_correction,
                                   fg=DIM_COLOR, padx=6)
         self._correct_btn.pack(side="right")
+
+        # ── Chat panel (hidden by default) ────────────────────────────────────
+        self._chat_frame = tk.Frame(content, bg=SURFACE_COLOR)
+        # Not packed yet — toggled by _toggle_chat
+
+        chat_input_row = tk.Frame(self._chat_frame, bg=SURFACE_COLOR)
+        chat_input_row.pack(fill="x", padx=6, pady=4)
+
+        self._chat_entry = tk.Entry(
+            chat_input_row, bg=SURFACE_2, fg=FG_COLOR,
+            insertbackground=ACCENT_COLOR, relief="flat",
+            font=FONT_BODY,
+        )
+        self._chat_entry.pack(side="left", fill="x", expand=True, ipady=4, padx=(0, 4))
+        self._chat_entry.bind("<Return>", lambda e: self._send_chat())
+
+        self._send_btn = _btn(chat_input_row, "→", self._send_chat,
+                               fg=ACCENT_COLOR, bg=SURFACE_2, padx=8)
+        self._send_btn.pack(side="right")
+
+        self._chat_visible = False
+
+        # ── Resize grip (bottom-right corner) ─────────────────────────────────
+        grip = tk.Label(inner, text="⠿", bg=BG_COLOR, fg=SURFACE_2,
+                        cursor="size_nw_se", font=("Segoe UI", 8))
+        grip.place(relx=1.0, rely=1.0, anchor="se")
+        grip.bind("<Button-1>", self._resize_start)
+        grip.bind("<B1-Motion>", self._resize_move)
+
+        # ── Tray icon ──────────────────────────────────────────────────────────
+        self._tray_icon = None
+        self._build_tray()
 
     # ── Thread-safe UI update ─────────────────────────────────────────────────
 
@@ -326,14 +370,59 @@ class NudgeWindow:
 
     # ── Controls ──────────────────────────────────────────────────────────────
 
+    # ── Tray icon ─────────────────────────────────────────────────────────────
+
+    def _build_tray(self):
+        # Draw a simple purple circle icon
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse([4, 4, 60, 60], fill="#6366F1")
+        d.ellipse([20, 20, 44, 44], fill="#22C55E")
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Show AI Co-Pilot", self._tray_show, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", self._tray_quit),
+        )
+        self._tray_icon = pystray.Icon("AI Co-Pilot", img, "AI Co-Pilot", menu)
+
     def _minimize(self):
-        self.root.overrideredirect(False)
-        self.root.iconify()
-        def on_restore(e):
-            self.root.overrideredirect(True)
-            self.root.wm_attributes("-topmost", True)
-            self.root.unbind("<Map>")
-        self.root.bind("<Map>", on_restore)
+        """Hide window and show system tray icon."""
+        self.root.withdraw()
+        if self._tray_icon and not self._tray_icon.visible:
+            threading.Thread(target=self._tray_icon.run, daemon=True).start()
+
+    def _tray_show(self, icon=None, item=None):
+        """Restore window from tray."""
+        if self._tray_icon:
+            self._tray_icon.stop()
+        self.root.after(0, self._restore_window)
+
+    def _restore_window(self):
+        self.root.deiconify()
+        self.root.wm_attributes("-topmost", True)
+
+    def _tray_quit(self, icon=None, item=None):
+        if self._tray_icon:
+            self._tray_icon.stop()
+        self.root.after(0, self._on_quit)
+
+    # ── Resize ────────────────────────────────────────────────────────────────
+
+    def _resize_start(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._resize_start_w = self.root.winfo_width()
+        self._resize_start_h = self.root.winfo_height()
+
+    def _resize_move(self, event):
+        dw = event.x_root - self._resize_start_x
+        dh = event.y_root - self._resize_start_y
+        new_w = max(280, self._resize_start_w + dw)
+        new_h = max(160, self._resize_start_h + dh)
+        self.root.geometry(f"{new_w}x{new_h}")
+        # Keep nudge text wrapping in sync
+        self._nudge_label.config(wraplength=new_w - 36)
 
     def _toggle_pause(self):
         self.state.is_paused = not self.state.is_paused
@@ -349,9 +438,60 @@ class NudgeWindow:
         self._nudge_label.config(text="Snoozed 10m — time tracking continues.", fg=COLORS["break"])
         self._accent_strip.config(bg=COLORS["break"])
 
-    def _show_correction(self):
+    def _mark_done(self):
+        task = self.state.current_task
+        if not task or task in ("none", "error", "—"):
+            return
+        db.complete_task(self.conn, self.session_id, task)
+        db.close_transition(self.conn, self.session_id)
+        self.state.set_nudge("none", "unknown", f"✓ '{task}' marked complete. What's next?")
+        self._nudge_label.config(text=f"✓ '{task}' marked complete. What's next?",
+                                 fg=COLORS["productive"])
+        self._accent_strip.config(bg=COLORS["productive"])
+        self._task_label.config(text="—")
+        self._done_btn.config(state="disabled", fg=DIM_COLOR)
+
+    def _toggle_chat(self):
+        self._chat_visible = not self._chat_visible
+        if self._chat_visible:
+            self._chat_frame.pack(fill="x", before=self._nudge_label)
+            self._chat_entry.focus_set()
+            self._chat_btn.config(fg=ACCENT_COLOR)
+        else:
+            self._chat_frame.pack_forget()
+            self._chat_btn.config(fg=DIM_COLOR)
+
+    def _send_chat(self):
+        msg = self._chat_entry.get().strip()
+        if not msg:
+            return
+        self._chat_entry.delete(0, "end")
+        self._nudge_label.config(text="Thinking…", fg=DIM_COLOR)
+        self._send_btn.config(state="disabled")
+
         tasks = db.get_tasks(self.conn, self.session_id)
-        if not tasks:
+
+        def call():
+            reply = claude_client.chat_with_claude(
+                msg, tasks,
+                self.state.current_task,
+                self.state.next_commitment,
+            )
+            self.root.after(0, lambda: self._show_chat_reply(reply))
+
+        threading.Thread(target=call, daemon=True).start()
+
+    def _show_chat_reply(self, reply: str):
+        self._nudge_label.config(text=reply, fg=COLORS["unknown"])
+        self._accent_strip.config(bg=COLORS["unknown"])
+        self._send_btn.config(state="normal")
+
+    def _show_correction(self):
+        # Show all tasks — active first, then completed (marked with ✓)
+        active = db.get_tasks(self.conn, self.session_id)
+        completed = db.get_completed_tasks(self.conn, self.session_id)
+        all_tasks = [(t, False) for t in active] + [(t, True) for t in completed]
+        if not all_tasks:
             return
 
         popup = tk.Toplevel(self.root)
@@ -361,8 +501,8 @@ class NudgeWindow:
 
         # Position above the nudge window
         px = self.root.winfo_x()
-        py = self.root.winfo_y() - (len(tasks) * 30 + 50)
-        popup.geometry(f"240x{len(tasks) * 30 + 44}+{px}+{py}")
+        py = self.root.winfo_y() - (len(all_tasks) * 32 + 56)
+        popup.geometry(f"260x{len(all_tasks) * 32 + 52}+{px}+{py}")
 
         inner = tk.Frame(popup, bg=SURFACE_COLOR)
         inner.pack(fill="both", expand=True, padx=1, pady=1)
@@ -371,10 +511,12 @@ class NudgeWindow:
                  fg=DIM_COLOR, font=("Segoe UI", 7, "bold"),
                  anchor="w", padx=10).pack(fill="x", pady=(8, 4))
 
-        for task in tasks:
+        for task, done in all_tasks:
+            label_text = f"✓ {task}" if done else task
+            fg = DIM_COLOR if done else FG_COLOR
             row = tk.Frame(inner, bg=SURFACE_COLOR, cursor="hand2")
             row.pack(fill="x", padx=6, pady=1)
-            lbl = tk.Label(row, text=task, bg=SURFACE_COLOR, fg=FG_COLOR,
+            lbl = tk.Label(row, text=label_text, bg=SURFACE_COLOR, fg=fg,
                            font=FONT_BODY, anchor="w", padx=8, pady=5)
             lbl.pack(fill="x")
             for widget in (row, lbl):

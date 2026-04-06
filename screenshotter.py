@@ -10,14 +10,16 @@ try:
 except Exception:
     pass
 
-_mss = mss.mss()
 _last_img: Image.Image | None = None
 
 
 def capture_primary() -> Image.Image:
-    monitor = _mss.monitors[1]  # primary monitor only
-    raw = _mss.grab(monitor)
-    return Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
+    # Create mss instance per-call — avoids _thread._local 'srcdc' error
+    # when called from a non-main thread
+    with mss.mss() as sct:
+        monitor = sct.monitors[1]  # primary monitor only
+        raw = sct.grab(monitor)
+        return Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
 
 
 def compute_diff(img_a: Image.Image, img_b: Image.Image) -> float:

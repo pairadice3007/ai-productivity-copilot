@@ -139,3 +139,31 @@ def analyze_screen(
         return AnalysisResult(error="connection", **{k: v for k, v in vars(_FALLBACK).items() if k != "error"})
     except Exception as e:
         return AnalysisResult(error=str(e), nudge_text="Claude unavailable — stay on task!")
+
+
+def chat_with_claude(
+    message: str,
+    tasks: list[str],
+    current_task: str,
+    next_commitment: str,
+) -> str:
+    """Send a freeform chat message and return Claude's plain-text reply."""
+    task_list = "\n".join(f"- {t}" for t in tasks) if tasks else "(none)"
+    system = (
+        "You are a focused productivity coach embedded in a desktop widget. "
+        "Keep responses concise (2-4 sentences max). Be direct and actionable. "
+        f"The user's task list: {task_list}. "
+        f"Current task: {current_task}. "
+        f"Next commitment: {next_commitment or 'none'}."
+    )
+    try:
+        response = get_client().messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=200,
+            timeout=30,
+            system=system,
+            messages=[{"role": "user", "content": message}],
+        )
+        return response.content[0].text.strip()
+    except Exception as e:
+        return f"Couldn't reach Claude: {e}"
