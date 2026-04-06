@@ -124,7 +124,7 @@ def log_activity(
            (session_id, timestamp, claude_summary, nudge_text, inferred_task,
             category, confidence, tokens_used, skip_reason)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (_now(), session_id, claude_summary, nudge_text, inferred_task,
+        (session_id, _now(), claude_summary, nudge_text, inferred_task,
          category, confidence, tokens_used, skip_reason),
     )
     conn.commit()
