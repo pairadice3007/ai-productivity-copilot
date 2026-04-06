@@ -7,6 +7,9 @@ Typography: Segoe UI (Inter equivalent) + Consolas (monospace)
 """
 import tkinter as tk
 from datetime import datetime
+import threading
+import pystray
+from PIL import Image, ImageDraw
 import database as db
 import time_tracker
 from config import (
@@ -257,6 +260,17 @@ class NudgeWindow:
                                   fg=DIM_COLOR, padx=6)
         self._correct_btn.pack(side="right")
 
+        # ── Resize grip (bottom-right corner) ─────────────────────────────────
+        grip = tk.Label(inner, text="⠿", bg=BG_COLOR, fg=SURFACE_2,
+                        cursor="size_nw_se", font=("Segoe UI", 8))
+        grip.place(relx=1.0, rely=1.0, anchor="se")
+        grip.bind("<Button-1>", self._resize_start)
+        grip.bind("<B1-Motion>", self._resize_move)
+
+        # ── Tray icon ──────────────────────────────────────────────────────────
+        self._tray_icon = None
+        self._build_tray()
+
     # ── Thread-safe UI update ─────────────────────────────────────────────────
 
     def update_nudge(self, task: str, category: str, nudge: str, indicator: str):
@@ -330,14 +344,59 @@ class NudgeWindow:
 
     # ── Controls ──────────────────────────────────────────────────────────────
 
+    # ── Tray icon ─────────────────────────────────────────────────────────────
+
+    def _build_tray(self):
+        # Draw a simple purple circle icon
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse([4, 4, 60, 60], fill="#6366F1")
+        d.ellipse([20, 20, 44, 44], fill="#22C55E")
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Show AI Co-Pilot", self._tray_show, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", self._tray_quit),
+        )
+        self._tray_icon = pystray.Icon("AI Co-Pilot", img, "AI Co-Pilot", menu)
+
     def _minimize(self):
-        self.root.overrideredirect(False)
-        self.root.iconify()
-        def on_restore(e):
-            self.root.overrideredirect(True)
-            self.root.wm_attributes("-topmost", True)
-            self.root.unbind("<Map>")
-        self.root.bind("<Map>", on_restore)
+        """Hide window and show system tray icon."""
+        self.root.withdraw()
+        if self._tray_icon and not self._tray_icon.visible:
+            threading.Thread(target=self._tray_icon.run, daemon=True).start()
+
+    def _tray_show(self, icon=None, item=None):
+        """Restore window from tray."""
+        if self._tray_icon:
+            self._tray_icon.stop()
+        self.root.after(0, self._restore_window)
+
+    def _restore_window(self):
+        self.root.deiconify()
+        self.root.wm_attributes("-topmost", True)
+
+    def _tray_quit(self, icon=None, item=None):
+        if self._tray_icon:
+            self._tray_icon.stop()
+        self.root.after(0, self._on_quit)
+
+    # ── Resize ────────────────────────────────────────────────────────────────
+
+    def _resize_start(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._resize_start_w = self.root.winfo_width()
+        self._resize_start_h = self.root.winfo_height()
+
+    def _resize_move(self, event):
+        dw = event.x_root - self._resize_start_x
+        dh = event.y_root - self._resize_start_y
+        new_w = max(280, self._resize_start_w + dw)
+        new_h = max(160, self._resize_start_h + dh)
+        self.root.geometry(f"{new_w}x{new_h}")
+        # Keep nudge text wrapping in sync
+        self._nudge_label.config(wraplength=new_w - 36)
 
     def _toggle_pause(self):
         self.state.is_paused = not self.state.is_paused
