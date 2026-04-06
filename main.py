@@ -10,7 +10,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from beside the exe (PyInstaller) or beside main.py (dev)
+_env_path = Path(sys.executable).parent / ".env"
+if not _env_path.exists():
+    _env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=_env_path)
 
 import database as db
 from config import LOCK_FILE
@@ -70,7 +74,10 @@ def _ensure_api_key(root: tk.Tk) -> bool:
             return
         key["value"] = k
         os.environ[ANTHROPIC_API_KEY_ENV] = k
-        env_path = Path(".env")
+        # Always save next to the exe / script, not the working directory
+        env_path = Path(sys.executable).parent / ".env"
+        if not env_path.exists():
+            env_path = Path(__file__).parent / ".env"
         existing = env_path.read_text() if env_path.exists() else ""
         if ANTHROPIC_API_KEY_ENV not in existing:
             with open(env_path, "a") as f:

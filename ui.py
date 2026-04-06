@@ -524,9 +524,15 @@ class NudgeWindow:
                 widget.bind("<Leave>", lambda e, r=row, l=lbl: (r.config(bg=SURFACE_COLOR), l.config(bg=SURFACE_COLOR)))
                 widget.bind("<Button-1>", lambda e, t=task: self._apply_correction(t, popup))
 
-        # Dismiss on outside click
-        popup.bind("<FocusOut>", lambda e: popup.destroy())
-        popup.focus_set()
+        # Dismiss on click outside (FocusOut is unreliable with overrideredirect on Windows)
+        def on_click_outside(e):
+            wx, wy = popup.winfo_x(), popup.winfo_y()
+            ww, wh = popup.winfo_width(), popup.winfo_height()
+            if not (wx <= e.x_root <= wx + ww and wy <= e.y_root <= wy + wh):
+                popup.destroy()
+        self.root.bind("<Button-1>", on_click_outside, add="+")
+        popup.protocol("WM_DELETE_WINDOW", popup.destroy)
+        popup.focus_force()
 
     def _apply_correction(self, task: str, popup: tk.Toplevel):
         popup.destroy()

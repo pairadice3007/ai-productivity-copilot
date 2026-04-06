@@ -16,6 +16,11 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r["name"] == column for r in rows)
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (
@@ -59,6 +64,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
     """)
     conn.commit()
+    # Migrate existing DBs that lack completed_at
+    if not _column_exists(conn, "tasks", "completed_at"):
+        conn.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT DEFAULT NULL")
+        conn.commit()
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
