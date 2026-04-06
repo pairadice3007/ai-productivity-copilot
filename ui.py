@@ -249,6 +249,10 @@ class NudgeWindow:
         _btn(btn_row, "⏱ Snooze", self._snooze,
              fg=DIM_COLOR, padx=6).pack(side="left", padx=3)
 
+        self._done_btn = _btn(btn_row, "✓ Done", self._mark_done,
+                              fg=COLORS["productive"], padx=6)
+        self._done_btn.pack(side="right", padx=(3, 0))
+
         self._correct_btn = _btn(btn_row, "✎", self._show_correction,
                                   fg=DIM_COLOR, padx=6)
         self._correct_btn.pack(side="right")
@@ -348,6 +352,19 @@ class NudgeWindow:
         self.state.snooze(minutes=10)
         self._nudge_label.config(text="Snoozed 10m — time tracking continues.", fg=COLORS["break"])
         self._accent_strip.config(bg=COLORS["break"])
+
+    def _mark_done(self):
+        task = self.state.current_task
+        if not task or task in ("none", "error", "—"):
+            return
+        db.complete_task(self.conn, self.session_id, task)
+        db.close_transition(self.conn, self.session_id)
+        self.state.set_nudge("none", "unknown", f"✓ '{task}' marked complete. What's next?")
+        self._nudge_label.config(text=f"✓ '{task}' marked complete. What's next?",
+                                 fg=COLORS["productive"])
+        self._accent_strip.config(bg=COLORS["productive"])
+        self._task_label.config(text="—")
+        self._done_btn.config(state="disabled", fg=DIM_COLOR)
 
     def _show_correction(self):
         tasks = db.get_tasks(self.conn, self.session_id)

@@ -28,10 +28,11 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS tasks (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id  INTEGER NOT NULL REFERENCES sessions(id),
-            name        TEXT NOT NULL,
-            position    INTEGER NOT NULL
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id   INTEGER NOT NULL REFERENCES sessions(id),
+            name         TEXT NOT NULL,
+            position     INTEGER NOT NULL,
+            completed_at TEXT DEFAULT NULL
         );
 
         CREATE TABLE IF NOT EXISTS activity_log (
@@ -100,9 +101,26 @@ def save_tasks(conn: sqlite3.Connection, session_id: int, tasks: list[str]) -> N
 
 def get_tasks(conn: sqlite3.Connection, session_id: int) -> list[str]:
     rows = conn.execute(
-        "SELECT name FROM tasks WHERE session_id=? ORDER BY position", (session_id,)
+        "SELECT name FROM tasks WHERE session_id=? AND completed_at IS NULL ORDER BY position",
+        (session_id,),
     ).fetchall()
     return [r["name"] for r in rows]
+
+
+def get_completed_tasks(conn: sqlite3.Connection, session_id: int) -> list[str]:
+    rows = conn.execute(
+        "SELECT name FROM tasks WHERE session_id=? AND completed_at IS NOT NULL ORDER BY completed_at",
+        (session_id,),
+    ).fetchall()
+    return [r["name"] for r in rows]
+
+
+def complete_task(conn: sqlite3.Connection, session_id: int, task_name: str) -> None:
+    conn.execute(
+        "UPDATE tasks SET completed_at=? WHERE session_id=? AND name=? AND completed_at IS NULL",
+        (_now(), session_id, task_name),
+    )
+    conn.commit()
 
 
 # ── Activity log ──────────────────────────────────────────────────────────────
