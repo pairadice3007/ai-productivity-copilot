@@ -55,7 +55,7 @@ def show_startup_dialog(root: tk.Tk):
     dlg.configure(bg=BG_COLOR)
     dlg.grab_set()
 
-    W, H = 420, 360
+    W, H = 420, 460
     sw, sh = dlg.winfo_screenwidth(), dlg.winfo_screenheight()
     dlg.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
 
@@ -76,9 +76,9 @@ def show_startup_dialog(root: tk.Tk):
              font=("Segoe UI", 7, "bold"), anchor="w").pack(fill="x")
 
     task_outer = tk.Frame(body, bg=BORDER_COLOR, pady=1, padx=1)
-    task_outer.pack(fill="both", expand=True, pady=(4, 12))
+    task_outer.pack(fill="x", expand=False, pady=(4, 12))
     task_inner = tk.Frame(task_outer, bg=SURFACE_COLOR)
-    task_inner.pack(fill="both", expand=True)
+    task_inner.pack(fill="x", expand=False)
 
     task_scroll = tk.Scrollbar(task_inner, bg=SURFACE_COLOR, troughcolor=SURFACE_COLOR,
                                 activebackground=SURFACE_2, relief="flat", bd=0, width=8)
@@ -88,7 +88,7 @@ def show_startup_dialog(root: tk.Tk):
         bg=SURFACE_COLOR, fg=FG_COLOR, insertbackground=ACCENT_COLOR,
         selectbackground=ACCENT_COLOR, selectforeground=FG_COLOR,
         relief="flat", bd=0, padx=10, pady=8,
-        font=FONT_BODY, wrap="word", height=9,
+        font=FONT_BODY, wrap="word", height=7,
     )
     task_text.pack(fill="both", expand=True)
     task_scroll.config(command=task_text.yview)
