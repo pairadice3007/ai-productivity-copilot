@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 .copilot.lock
+build/
+dist/
+*.spec.bak
+.claude/
