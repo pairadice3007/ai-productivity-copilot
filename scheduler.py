@@ -64,8 +64,13 @@ class SchedulerThread(threading.Thread):
         self._skip_cycles = 0             # for rate-limit backoff
 
     def run(self):
+        # Small delay so the UI finishes rendering, then fire immediately
+        self._stop.wait(timeout=3)
         while not self._stop.is_set():
-            self._cycle()
+            try:
+                self._cycle()
+            except Exception as e:
+                self._ui_callback("error", "unknown", f"Scheduler error: {e}", "error")
             jitter = random.randint(-5, 5)
             self._stop.wait(timeout=max(10, SCREENSHOT_INTERVAL + jitter))
 

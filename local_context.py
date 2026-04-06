@@ -1,15 +1,20 @@
 import ctypes
-import os
-import time
-import win32gui
-import win32process
-import win32api
 import psutil
 from config import SENSITIVE_APPS
+
+try:
+    import win32gui
+    import win32process
+    import win32api
+    _WIN32_AVAILABLE = True
+except ImportError:
+    _WIN32_AVAILABLE = False
 
 
 def get_active_window() -> tuple[str, str]:
     """Return (app_name, window_title) for the currently focused window."""
+    if not _WIN32_AVAILABLE:
+        return "unknown", ""
     try:
         hwnd = win32gui.GetForegroundWindow()
         title = win32gui.GetWindowText(hwnd)
@@ -26,6 +31,8 @@ def get_active_window() -> tuple[str, str]:
 
 def get_idle_seconds() -> float:
     """Seconds since the last mouse or keyboard input."""
+    if not _WIN32_AVAILABLE:
+        return 0.0
     try:
         info = win32api.GetLastInputInfo()
         millis = ctypes.windll.kernel32.GetTickCount() - info
