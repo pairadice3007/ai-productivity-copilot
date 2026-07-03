@@ -33,10 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.videotriage.app.VideoTriageViewModel
@@ -50,9 +51,7 @@ import com.videotriage.app.VideoTriageViewModel
 fun TriageScreen(vm: VideoTriageViewModel) {
     val state = vm.state
     val context = LocalContext.current
-
-    // Load the first time this screen appears.
-    LaunchedEffect(Unit) { vm.load() }
+    val current = state.currentVideo
 
     // One reusable player for the whole session.
     val player = remember {
@@ -72,6 +71,10 @@ fun TriageScreen(vm: VideoTriageViewModel) {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
+
+            override fun onPlayerError(error: PlaybackException) {
+                vm.reportPlaybackError(vm.state.currentVideo?.name ?: "video")
+            }
         }
         player.addListener(listener)
         onDispose {
@@ -80,11 +83,12 @@ fun TriageScreen(vm: VideoTriageViewModel) {
         }
     }
 
-    // Point the player at the current video whenever it changes.
-    val current = state.currentVideo
-    LaunchedEffect(current?.uri) {
+    // Point the player at the current video whenever the top card changes.
+    // Playing the file directly (not a MediaStore content URI) keeps restored
+    // videos playable — content URIs go stale once a file is moved and back.
+    LaunchedEffect(current?.id) {
         if (current != null) {
-            player.setMediaItem(MediaItem.fromUri(current.uri))
+            player.setMediaItem(MediaItem.fromUri(current.file.toUri()))
             player.prepare()
             player.playWhenReady = true
         } else {
@@ -92,18 +96,15 @@ fun TriageScreen(vm: VideoTriageViewModel) {
         }
     }
 
-    // Pause in background, resume on return.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> player.pause()
-                Lifecycle.Event.ON_RESUME -> if (player.mediaItemCount > 0) player.play()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    // Pause in background; on return, resume only if the user hadn't
+    // deliberately paused before leaving.
+    var resumePlaybackOnReturn by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        resumePlaybackOnReturn = player.isPlaying
+        player.pause()
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (resumePlaybackOnReturn) player.play()
     }
 
     // One-shot messages (errors, "freed N MB").
@@ -123,16 +124,16 @@ fun TriageScreen(vm: VideoTriageViewModel) {
         ) {
             FolderFilterBar(
                 buckets = state.buckets,
-                selected = state.selectedBucket,
+                selected = state.buckets.find { it.id == state.selectedBucketId },
                 trashCount = state.trashCount,
                 trashBytes = state.trashBytes,
-                onSelect = vm::selectBucket,
+                onSelect = { vm.selectBucket(it?.id) },
                 onEmptyTrash = vm::emptyTrash,
             )
 
             if (current != null) {
                 Text(
-                    text = "${state.index + 1} of ${state.videos.size}   •   " +
+                    text = "${state.position} of ${state.totalCount}   •   " +
                         "kept ${state.keptCount}   •   trashed ${state.trashedCount}",
                     style = MaterialTheme.typography.labelMedium,
                     textAlign = TextAlign.Center,
@@ -152,7 +153,7 @@ fun TriageScreen(vm: VideoTriageViewModel) {
                 when {
                     state.loading -> CircularProgressIndicator()
                     current != null -> SwipeableDeck(
-                        cardKey = current.uri,
+                        cardKey = current.id,
                         onKeep = vm::keep,
                         onTrash = vm::trash,
                         modifier = Modifier.fillMaxSize(),
@@ -170,7 +171,9 @@ fun TriageScreen(vm: VideoTriageViewModel) {
                     else -> DoneScreen(
                         keptCount = state.keptCount,
                         trashedCount = state.trashedCount,
-                        hadAnyVideos = state.videos.isNotEmpty(),
+                        hadAnyVideos = state.totalCount > 0,
+                        canUndo = state.canUndo,
+                        onUndo = vm::undo,
                         onRescan = vm::load,
                     )
                 }

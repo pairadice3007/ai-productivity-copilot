@@ -1,5 +1,6 @@
 package com.videotriage.app.ui
 
+import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,27 +22,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.videotriage.app.formatBytes
+import com.videotriage.app.data.Bucket
 
 private const val ALL_FOLDERS = "All folders"
 
 /**
  * Top control bar: a folder filter dropdown on the left and a trash summary
  * with an "Empty" action (guarded by a confirmation dialog) on the right.
+ * Folders are identified by MediaStore BUCKET_ID, so same-named folders on
+ * different volumes stay distinct.
  */
 @Composable
 fun FolderFilterBar(
-    buckets: List<String>,
-    selected: String?,
+    buckets: List<Bucket>,
+    selected: Bucket?,
     trashCount: Int,
     trashBytes: Long,
-    onSelect: (String?) -> Unit,
+    onSelect: (Bucket?) -> Unit,
     onEmptyTrash: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var confirmOpen by remember { mutableStateOf(false) }
+    val trashSize = Formatter.formatFileSize(context, trashBytes)
 
     Row(
         modifier = modifier
@@ -53,7 +59,7 @@ fun FolderFilterBar(
         // Folder filter.
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { menuOpen = true }) {
-                Text(selected ?: ALL_FOLDERS, maxLines = 1)
+                Text(selected?.name ?: ALL_FOLDERS, maxLines = 1)
                 Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose folder")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -63,7 +69,7 @@ fun FolderFilterBar(
                 )
                 buckets.forEach { bucket ->
                     DropdownMenuItem(
-                        text = { Text(bucket) },
+                        text = { Text(bucket.name) },
                         onClick = { menuOpen = false; onSelect(bucket) },
                     )
                 }
@@ -77,7 +83,7 @@ fun FolderFilterBar(
         ) {
             Icon(Icons.Filled.Delete, contentDescription = null)
             Text(
-                text = "  Trash: $trashCount (${formatBytes(trashBytes)})",
+                text = "  Trash: $trashCount ($trashSize)",
                 style = MaterialTheme.typography.labelLarge,
             )
         }
@@ -90,7 +96,7 @@ fun FolderFilterBar(
             text = {
                 Text(
                     "Permanently delete $trashCount video(s) and free " +
-                        "${formatBytes(trashBytes)}? This cannot be undone."
+                        "$trashSize? This cannot be undone."
                 )
             },
             confirmButton = {

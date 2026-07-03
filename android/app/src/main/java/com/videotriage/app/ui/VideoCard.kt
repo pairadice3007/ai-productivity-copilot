@@ -1,5 +1,7 @@
 package com.videotriage.app.ui
 
+import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,11 +21,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -32,8 +36,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.videotriage.app.data.VideoItem
-import com.videotriage.app.formatBytes
-import com.videotriage.app.formatDuration
 
 /**
  * The visible card: the playing video filling the surface, with a gradient
@@ -51,6 +53,14 @@ fun VideoCard(
     onToggleMute: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    // Built once per card, not on every recomposition.
+    val metadata = remember(item.id) {
+        DateUtils.formatElapsedTime(item.durationMs / 1000) +
+            "  •  " + Formatter.formatFileSize(context, item.sizeBytes) +
+            "  •  " + item.bucket
+    }
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
@@ -65,7 +75,7 @@ fun VideoCard(
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },
-            update = { view -> view.player = player },
+            update = { view -> if (view.player !== player) view.player = player },
         )
 
         // Bottom gradient + metadata.
@@ -95,8 +105,7 @@ fun VideoCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${formatDuration(item.durationMs)}  •  " +
-                        "${formatBytes(item.sizeBytes)}  •  ${item.bucket}",
+                    text = metadata,
                     color = Color(0xFFDDDDDD),
                     style = MaterialTheme.typography.bodySmall,
                 )

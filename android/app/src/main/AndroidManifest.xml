@@ -10,9 +10,9 @@
     <!-- Fallbacks for Android 10 and below, where MANAGE_EXTERNAL_STORAGE
          does not exist. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkValue="29" />
+        android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkValue="29" />
+        android:maxSdkVersion="29" />
 
     <application
         android:allowBackup="true"

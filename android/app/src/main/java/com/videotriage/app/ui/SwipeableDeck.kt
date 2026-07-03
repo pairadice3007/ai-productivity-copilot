@@ -3,7 +3,9 @@ package com.videotriage.app.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,19 +18,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 /**
- * A single draggable card. Drag past the horizontal threshold (or fling) to
- * the right to [onKeep] or to the left to [onTrash]; release short of the
- * threshold to spring back. Colored KEEP / TRASH labels fade in with the drag.
+ * A single draggable card. Drag past the horizontal threshold to the right to
+ * [onKeep] or to the left to [onTrash]; release short of the threshold to
+ * spring back. Colored KEEP / TRASH labels fade in with the drag.
+ *
+ * All reads of the drag offset happen inside graphicsLayer lambdas, so drag
+ * frames only update layer properties — the card's content (including the
+ * video surface) is never recomposed mid-gesture.
  *
  * @param cardKey identifies the current top item; when it changes the card
  *                resets to center so the next video starts fresh.
@@ -50,23 +55,16 @@ fun SwipeableDeck(
         // Reset position when a new card becomes the top card.
         LaunchedEffect(cardKey) { offsetX.snapTo(0f) }
 
-        val rotation = (offsetX.value / widthPx) * 12f
-        val keepAlpha = (offsetX.value / threshold).coerceIn(0f, 1f)
-        val trashAlpha = (-offsetX.value / threshold).coerceIn(0f, 1f)
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     translationX = offsetX.value
-                    rotationZ = rotation
+                    rotationZ = (offsetX.value / widthPx) * 12f
                 }
                 .pointerInput(cardKey) {
-                    detectDrag(
-                        onDelta = { dx ->
-                            scope.launch { offsetX.snapTo(offsetX.value + dx) }
-                        },
-                        onEnd = {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
                             val target = offsetX.value
                             when {
                                 target > threshold -> scope.launch {
@@ -80,22 +78,29 @@ fun SwipeableDeck(
                                 else -> scope.launch { offsetX.animateTo(0f, tween(220)) }
                             }
                         },
+                        onDragCancel = {
+                            scope.launch { offsetX.animateTo(0f, tween(220)) }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            scope.launch { offsetX.snapTo(offsetX.value + dragAmount) }
+                        },
                     )
                 },
         ) {
             content()
 
-            // KEEP / TRASH overlay badges.
+            // KEEP / TRASH overlay badges, faded in by drag distance.
             SwipeBadge(
                 text = "KEEP",
                 color = KeepGreen,
-                alpha = keepAlpha,
+                alphaProvider = { (offsetX.value / threshold).coerceIn(0f, 1f) },
                 alignment = Alignment.TopStart,
             )
             SwipeBadge(
                 text = "TRASH",
                 color = TrashRed,
-                alpha = trashAlpha,
+                alphaProvider = { (-offsetX.value / threshold).coerceIn(0f, 1f) },
                 alignment = Alignment.TopEnd,
             )
         }
@@ -103,44 +108,26 @@ fun SwipeableDeck(
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.BoxScope.SwipeBadge(
+private fun BoxScope.SwipeBadge(
     text: String,
-    color: androidx.compose.ui.graphics.Color,
-    alpha: Float,
+    color: Color,
+    alphaProvider: () -> Float,
     alignment: Alignment,
 ) {
     Box(
         modifier = Modifier
             .align(alignment)
             .padding(24.dp)
-            .alpha(alpha)
+            .graphicsLayer { alpha = alphaProvider() }
             .clip(RoundedCornerShape(8.dp))
             .background(color)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
             text = text,
-            color = androidx.compose.ui.graphics.Color.White,
+            color = Color.White,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
     }
-}
-
-/**
- * Thin wrapper over [androidx.compose.foundation.gestures.detectDragGestures]
- * exposing just the horizontal delta and an end callback.
- */
-private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectDrag(
-    onDelta: (Float) -> Unit,
-    onEnd: () -> Unit,
-) {
-    androidx.compose.foundation.gestures.detectDragGestures(
-        onDragEnd = onEnd,
-        onDragCancel = onEnd,
-        onDrag = { change, dragAmount ->
-            change.consume()
-            onDelta(dragAmount.x)
-        },
-    )
 }

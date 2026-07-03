@@ -2,14 +2,17 @@ package com.videotriage.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,14 +20,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
- * Shown when there are no more videos to triage. Summarizes the session and
- * offers a rescan so newly added videos (or an emptied trash) show up.
+ * Shown when there are no more videos to triage. Summarizes the session,
+ * still offers Undo (so trashing the very last card is reversible), and a
+ * rescan so newly added videos (or an emptied trash) show up.
  */
 @Composable
 fun DoneScreen(
     keptCount: Int,
     trashedCount: Int,
     hadAnyVideos: Boolean,
+    canUndo: Boolean,
+    onUndo: () -> Unit,
     onRescan: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -55,6 +61,14 @@ fun DoneScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(vertical = 16.dp),
         )
-        Button(onClick = onRescan) { Text("Rescan") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (canUndo) {
+                TextButton(onClick = onUndo) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
+                    Text("  Undo")
+                }
+            }
+            Button(onClick = onRescan) { Text("Rescan") }
+        }
     }
 }

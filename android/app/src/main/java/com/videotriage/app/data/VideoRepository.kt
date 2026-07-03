@@ -1,11 +1,13 @@
 package com.videotriage.app.data
 
-import android.content.ContentUris
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.os.Environment
 import android.provider.MediaStore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Reads the device's videos via MediaStore and moves them between their
@@ -14,20 +16,25 @@ import java.io.File
  *
  * "Deleting" never destroys a file here — it only moves it into
  * [trashDir]. Permanent deletion happens solely in [emptyTrash].
+ *
+ * All mutating operations are serialized through [mutex] so an Empty Trash
+ * can never run concurrently with an in-flight move (which could otherwise
+ * delete a half-copied file and lose the video).
  */
 class VideoRepository(private val context: Context) {
+
+    private val mutex = Mutex()
 
     /** Folder (on the primary shared volume) that holds videos awaiting deletion. */
     fun trashDir(): File =
         File(Environment.getExternalStorageDirectory(), TRASH_DIR_NAME)
 
     /**
-     * Queries all videos on the device, newest first, excluding anything that
-     * already lives in the trash folder.
-     *
-     * @param bucket if non-null, only videos whose folder name equals this.
+     * Queries all videos on the device, newest first, excluding the trash
+     * folder's own contents. Folder filtering happens in memory at the caller,
+     * so one scan serves both the deck and the folder list.
      */
-    fun query(bucket: String? = null): List<VideoItem> {
+    fun query(): List<VideoItem> {
         val trashPath = trashDir().absolutePath
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
@@ -36,6 +43,7 @@ class VideoRepository(private val context: Context) {
             MediaStore.Video.Media.SIZE,
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Video.Media.BUCKET_ID,
         )
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
 
@@ -53,31 +61,28 @@ class VideoRepository(private val context: Context) {
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
             val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
             val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+            val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_ID)
 
             while (cursor.moveToNext()) {
                 val data = cursor.getString(dataCol) ?: continue
-                // Skip videos already in the trash folder.
-                if (data.startsWith(trashPath)) continue
-
                 val file = File(data)
+                // Exact-directory comparison: only the trash folder itself is
+                // excluded, not sibling folders that share the path prefix.
+                if (file.parentFile?.absolutePath == trashPath) continue
                 // Skip rows whose underlying file is gone (stale MediaStore entry).
                 if (!file.exists()) continue
 
-                val bucketName = cursor.getString(bucketCol) ?: file.parentFile?.name ?: "Unknown"
-                if (bucket != null && bucketName != bucket) continue
-
-                val id = cursor.getLong(idCol)
                 results.add(
                     VideoItem(
-                        id = id,
-                        uri = ContentUris.withAppendedId(
-                            MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id
-                        ),
+                        id = cursor.getLong(idCol),
                         file = file,
                         name = cursor.getString(nameCol) ?: file.name,
                         sizeBytes = cursor.getLong(sizeCol),
                         durationMs = cursor.getLong(durCol),
-                        bucket = bucketName,
+                        bucket = cursor.getString(bucketCol)
+                            ?: file.parentFile?.name ?: "Unknown",
+                        bucketId = cursor.getString(bucketIdCol)
+                            ?: (file.parentFile?.absolutePath ?: "unknown"),
                     )
                 )
             }
@@ -85,33 +90,29 @@ class VideoRepository(private val context: Context) {
         return results
     }
 
-    /** Distinct folder names that contain videos, sorted alphabetically. */
-    fun listBuckets(): List<String> =
-        query().map { it.bucket }.distinct().sorted()
-
     /**
      * Moves [item] into the trash folder and rescans both locations so the
      * media library stays accurate. Returns the destination file (kept by the
      * caller so the move can be undone via [restore]).
      */
-    fun moveToTrash(item: VideoItem): File {
+    suspend fun moveToTrash(item: VideoItem): File = mutex.withLock {
         val dir = trashDir().apply { if (!exists()) mkdirs() }
         val dest = uniqueDestination(dir, item.name)
-        moveFile(item.file, dest)
+        Files.move(item.file.toPath(), dest.toPath())
         scan(item.file.absolutePath, dest.absolutePath)
-        return dest
+        dest
     }
 
     /**
      * Moves a previously-trashed file back to its original location. Returns
      * true on success.
      */
-    fun restore(item: VideoItem, trashedFile: File): Boolean {
+    suspend fun restore(item: VideoItem, trashedFile: File): Boolean = mutex.withLock {
         if (!trashedFile.exists()) return false
         val original = item.file
         original.parentFile?.let { if (!it.exists()) it.mkdirs() }
-        return try {
-            moveFile(trashedFile, original)
+        try {
+            Files.move(trashedFile.toPath(), original.toPath())
             scan(trashedFile.absolutePath, original.absolutePath)
             true
         } catch (e: Exception) {
@@ -127,9 +128,10 @@ class VideoRepository(private val context: Context) {
 
     /**
      * Permanently deletes every file in the trash folder. Returns the number
-     * of bytes freed. This is the only operation that destroys data.
+     * of bytes freed. This is the only operation that destroys data; the
+     * [mutex] guarantees it never overlaps an in-flight move.
      */
-    fun emptyTrash(): Long {
+    suspend fun emptyTrash(): Long = mutex.withLock {
         var freed = 0L
         val paths = ArrayList<String>()
         trashDir().listFiles()?.forEach { f ->
@@ -142,7 +144,7 @@ class VideoRepository(private val context: Context) {
             }
         }
         if (paths.isNotEmpty()) scan(*paths.toTypedArray())
-        return freed
+        freed
     }
 
     // --- helpers -----------------------------------------------------------
@@ -151,31 +153,14 @@ class VideoRepository(private val context: Context) {
     private fun uniqueDestination(dir: File, name: String): File {
         var candidate = File(dir, name)
         if (!candidate.exists()) return candidate
-        val dot = name.lastIndexOf('.')
-        val base = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
+        val base = candidate.nameWithoutExtension
+        val ext = candidate.extension.let { if (it.isEmpty()) "" else ".$it" }
         var i = 1
         while (candidate.exists()) {
             candidate = File(dir, "${base}_$i$ext")
             i++
         }
         return candidate
-    }
-
-    /**
-     * Moves a file, preferring an instant rename and falling back to
-     * copy-then-delete when source and destination are on different volumes.
-     */
-    private fun moveFile(src: File, dest: File) {
-        if (src.renameTo(dest)) return
-        src.inputStream().use { input ->
-            dest.outputStream().use { output -> input.copyTo(output) }
-        }
-        if (!src.delete()) {
-            // Copy succeeded but original couldn't be removed; surface as error
-            // so the caller doesn't believe space was reclaimed.
-            throw IllegalStateException("Copied ${src.name} but failed to delete original")
-        }
     }
 
     /** Asks the system to rescan paths so MediaStore reflects the move. */

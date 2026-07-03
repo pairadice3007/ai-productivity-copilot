@@ -18,7 +18,8 @@ once you're sure.
   default — tap to unmute or pause.
 - 👉 **Swipe right = keep**, 👈 **swipe left = trash** (or use the buttons).
 - 🗑️ Trashed videos move to `Internal storage/VideoTriage_Trash/` — a soft
-  delete. An **Undo** button restores the last one.
+  delete. **Undo** restores trashed videos one at a time, newest first, and
+  works even after the last card.
 - 🧹 **Empty Trash** permanently deletes everything in that folder (with a
   confirmation) and tells you how much space you freed.
 - 📁 **Folder filter** to triage just one folder (Camera, Downloads, …) at a
@@ -67,14 +68,16 @@ access** as above.
 
 ## How it works
 
-- `data/VideoRepository.kt` — queries videos via **MediaStore**, and
-  moves/restores/deletes files directly with `java.io.File` (allowed by All
-  Files Access). Moving is an instant `renameTo` within the same volume, with
-  a copy-then-delete fallback across volumes. After every move it triggers a
-  media rescan so your gallery stays accurate.
-- `VideoTriageViewModel.kt` — holds the video list and current position, and
-  exposes `keep()`, `trash()`, `undo()`, `emptyTrash()`, and the folder
-  filter. All disk work runs off the main thread.
+- `data/VideoRepository.kt` — queries videos via **MediaStore** (one scan;
+  folder filtering happens in memory) and moves/restores/deletes files with
+  `java.nio.file.Files.move` (instant rename within a volume, safe
+  copy-then-delete across volumes). All mutations are serialized through a
+  mutex so Empty Trash can never race an in-flight move, and every move
+  triggers a media rescan so your gallery stays accurate.
+- `VideoTriageViewModel.kt` — models the session as a deck: the current video
+  is the head, keep/trash pop it, a failed move or an undo reinserts the
+  exact item at the head, and undo is a stack. All disk work runs off the
+  main thread.
 - `ui/SwipeableDeck.kt` — the Tinder-style drag gesture with KEEP/TRASH
   badges.
 - `ui/VideoCard.kt` — the ExoPlayer surface plus the name/size/duration/folder
